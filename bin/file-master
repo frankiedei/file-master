@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# file-master — start/stop the File Master server
+set -euo pipefail
+
+# Resolve the real app dir even when this script is run via symlink
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+APP_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+
+PORT="${PORT:-3456}"
+URL="http://localhost:$PORT"
+WORK_DIR="${TMPDIR:-/tmp}"; WORK_DIR="${WORK_DIR%/}/file-master"
+PID_FILE="$WORK_DIR/server.pid"
+LOG_FILE="$WORK_DIR/server.log"
+
+running() {
+  curl -sf -o /dev/null --max-time 2 "$URL/api/formats"
+}
+
+start() {
+  if running; then
+    echo "File Master already running at $URL"
+  else
+    mkdir -p "$WORK_DIR"
+    echo "Starting File Master…"
+    (cd "$APP_DIR" && nohup node server.js >> "$LOG_FILE" 2>&1 &)
+    for _ in $(seq 1 40); do running && break; sleep 0.25; done
+    if ! running; then
+      echo "Failed to start — recent log:" >&2
+      tail -20 "$LOG_FILE" >&2 || true
+      exit 1
+    fi
+    echo "File Master running at $URL (log: $LOG_FILE)"
+  fi
+  command -v open >/dev/null && open "$URL"
+}
+
+stop() {
+  if curl -sf -o /dev/null --max-time 2 -X POST "$URL/api/shutdown"; then
+    echo "File Master stopped."
+  elif [ -f "$PID_FILE" ] && kill "$(cat "$PID_FILE")" 2>/dev/null; then
+    rm -f "$PID_FILE"
+    echo "File Master stopped (via PID file)."
+  else
+    echo "File Master is not running."
+  fi
+}
+
+case "${1:-start}" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; sleep 1; start ;;
+  status)  running && echo "Running at $URL" || { echo "Not running"; exit 1; } ;;
+  logs)    tail -n "${2:-50}" "$LOG_FILE" ;;
+  update)  git -C "$APP_DIR" pull --ff-only && (cd "$APP_DIR" && npm install --no-audit --no-fund) && echo "Updated. Restart with: file-master restart" ;;
+  *)       echo "Usage: file-master [start|stop|restart|status|logs|update]"; exit 1 ;;
+esac

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Master</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+</div>
+
+<main>
+  <header class="glass header">
+    <h1>File Master</h1>
+    <nav class="tabs">
+      <button class="tab active" data-tab="convert">Converter</button>
+      <button class="tab" data-tab="song">Song Finder</button>
+    </nav>
+    <button id="powerBtn" class="power" title="Shut down the server">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1011.4 0"/></svg>
+    </button>
+  </header>
+
+  <!-- ============ CONVERTER TAB ============ -->
+  <section id="tab-convert" class="tab-panel active">
+    <div class="glass dropzone" id="dropzone">
+      <div class="dz-inner">
+        <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m0 0l-4 4m4-4l4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke-linecap="round"/></svg>
+        <p><strong>Drop files here</strong> or click to browse</p>
+        <p class="hint">audio · video · image · text</p>
+      </div>
+      <input type="file" id="fileInput" multiple hidden>
+    </div>
+
+    <div class="glass urlbar">
+      <input type="url" id="urlInput" placeholder="…or paste a direct link to a file">
+      <button id="urlAdd" class="btn">Add</button>
+    </div>
+
+    <div id="queue" class="queue"></div>
+
+    <div id="queueActions" class="glass queue-actions" hidden>
+      <span class="hint" id="queueHint">Drag rows to reorder · ZIP is numbered in this order</span>
+      <div class="row-gap">
+        <button id="convertAll" class="btn primary">Convert All</button>
+        <button id="downloadZip" class="btn" hidden>Download ZIP</button>
+        <button id="clearQueue" class="btn ghost">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SONG FINDER TAB ============ -->
+  <section id="tab-song" class="tab-panel">
+    <div class="glass searchbar">
+      <input type="text" id="artistInput" placeholder="Artist">
+      <input type="text" id="songInput" placeholder="Song name">
+      <select id="songFormat" class="fmt-select">
+        <option value="mp3">MP3</option>
+        <option value="m4a">M4A</option>
+        <option value="wav">WAV</option>
+      </select>
+      <button id="searchBtn" class="btn primary">Search</button>
+    </div>
+    <div id="songStatus" class="status" hidden></div>
+    <div id="results" class="results"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "file-master",
+  "version": "1.0.0",
+  "description": "Universal file converter + song finder",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": ["converter", "ffmpeg", "pandoc", "yt-dlp"],
+  "author": "frankiedei",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frankiedei/file-master.git"
+  },
+  "bin": {
+    "file-master": "bin/file-master"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "sharp": "^0.35.3"
+  }
+}
