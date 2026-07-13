@@ -283,10 +283,12 @@ async function downloadSong(r, card) {
   try {
     const resp = await fetch('/api/song', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artist: r.artist, track: r.track, album: r.album, cover: r.cover, duration: r.duration, format }),
+      body: JSON.stringify({ artist: r.artist, track: r.track, album: r.album, cover: r.cover,
+        duration: r.duration, url: $('#ytUrl').value.trim() || undefined, format }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Download failed');
+    $('#ytUrl').value = ''; // the link override is one-shot
     const a = document.createElement('a');
     a.href = `/api/file/${data.id}`;
     a.download = data.name;
@@ -323,21 +325,25 @@ $('#bulkBtn').addEventListener('click', async () => {
 
   for (let i = 0; i < lines.length; i++) {
     const status = rows[i].querySelector('.bl-status');
+    // Optional "| YouTube link" at the end forces that exact video
+    const urlMatch = lines[i].match(/https?:\/\/\S+/);
+    const url = urlMatch ? urlMatch[0] : undefined;
+    const meta = lines[i].replace(/https?:\/\/\S+/, '').replace(/\|/g, '').trim();
     // "Artist - Title" (also – or —); no separator = treat the line as a title
-    const parts = lines[i].split(/\s+[-–—]\s+/);
+    const parts = meta.split(/\s+[-–—]\s+/);
     const artist = parts.length > 1 ? parts[0] : '';
-    const song = parts.length > 1 ? parts.slice(1).join(' - ') : lines[i];
+    const song = parts.length > 1 ? parts.slice(1).join(' - ') : meta;
     try {
+      if (!meta) throw new Error('Add "Artist - Title" before the link');
       status.innerHTML = '<span class="spin"></span>Searching…';
       const sr = await fetch(`/api/search?artist=${encodeURIComponent(artist)}&song=${encodeURIComponent(song)}`)
         .then(r => r.json());
-      const hit = sr.results && sr.results[0];
-      if (!hit) throw new Error('No match found');
+      const hit = (sr.results && sr.results[0]) || { artist, track: song };
       status.innerHTML = '<span class="spin"></span>Downloading…';
       const resp = await fetch('/api/song', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ artist: hit.artist, track: hit.track, album: hit.album,
-          cover: hit.cover, duration: hit.duration, format }),
+          cover: hit.cover, duration: hit.duration, url, format }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Download failed');

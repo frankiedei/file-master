@@ -268,59 +268,106 @@ const BAD_WORDS = [
   'sped up', 'slowed', '8d audio', 'reverb', 'nightcore', 'loop', '1 hour',
   'definition', 'meaning', 'pronunciation', 'pronounce', 'vocabulary',
   'tutorial', 'lesson', 'review', 'trailer', 'teaser', 'interview',
+  'how to', 'what to do', 'first aid', 'treatment', 'remedy', 'remedies',
+  'tips', 'facts', 'explained', 'podcast', 'episode', 'audiobook',
 ];
+
+// Below this score we refuse to download rather than guess wrong
+const MIN_CONFIDENCE = 12;
+
+const cleanText = s => (s || '').toLowerCase()
+  .replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
 
 // Search YouTube for the track and score candidates instead of trusting the
 // first hit — duration (known from Deezer/iTunes) is the strongest signal.
-// Returns watch URLs, best first, so the caller can retry on blocked videos.
+// Returns { score, url } best first, or null if the search itself failed.
 async function rankVideos({ artist, track, duration }) {
-  const query = `${artist || ''} ${track} audio`.trim();
-  let candidates;
-  try {
-    const out = await runOut('yt-dlp', [`ytsearch8:${query}`, '--dump-json', '--flat-playlist']);
-    candidates = out.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
-  } catch {
-    return []; // fall back to ytsearch1
+  // Two query variants so the real recording is more likely to be a candidate:
+  // "audio" biases toward official uploads of mainstream tracks, while "song"
+  // rescues obscure tracks whose title words drown in non-music results
+  const base = `${artist || ''} ${track}`.trim();
+  const queries = [`${base} audio`, `${base} song`];
+  const outs = await Promise.allSettled(queries.map(q =>
+    runOut('yt-dlp', [`ytsearch6:${q}`, '--dump-json', '--flat-playlist'])));
+  const candidates = [];
+  const seen = new Set();
+  for (const o of outs) {
+    if (o.status !== 'fulfilled') continue;
+    for (const line of o.value.trim().split('\n').filter(Boolean)) {
+      try {
+        const v = JSON.parse(line);
+        if (v.id && !seen.has(v.id)) { seen.add(v.id); candidates.push(v); }
+      } catch {}
+    }
   }
-  const t = track.toLowerCase();
-  const a = (artist || '').toLowerCase();
+  if (outs.every(o => o.status === 'rejected')) return null; // search failed
+
+  const t = cleanText(track);
+  const a = cleanText(artist);
   const scored = [];
   for (const v of candidates) {
-    if (!v.id) continue;
-    const title = (v.title || '').toLowerCase();
-    const chan = (v.uploader || v.channel || '').toLowerCase();
+    const title = cleanText(v.title);
+    const rawTitle = (v.title || '').toLowerCase();
+    const chan = cleanText(v.uploader || v.channel);
     let s = 0;
     if (duration && v.duration) {
       const diff = Math.abs(v.duration - duration);
+      // A video far from the known track length is never the right recording
+      if (diff > Math.max(45, duration * 0.25)) continue;
       if (diff <= 3) s += 30;
       else if (diff <= 10) s += 15;
-      else if (diff > Math.max(45, duration * 0.25)) s -= 25;
     }
     if (title.includes(t)) s += 10;
     if (a && (title.includes(a) || chan.includes(a))) s += 8;
-    if (chan.endsWith(' - topic')) s += 12; // auto-generated official audio channel
-    if (/official (audio|video|music video)/.test(title)) s += 5;
+    // Titles structured like a release ("Artist - Track", "Track") rank above
+    // videos that merely mention the words somewhere
+    if (title === t || title.startsWith(`${t} `) || (a && title.startsWith(`${a} ${t}`))) s += 8;
+    if (chan.endsWith(' topic')) s += 12; // auto-generated official audio channel
+    if (/official (audio|video|music video)|official lyric/.test(rawTitle)) s += 5;
     for (const w of BAD_WORDS) {
-      if ((title.includes(w) || chan.includes(w)) && !t.includes(w)) s -= 12;
+      if ((title.includes(w) || rawTitle.includes(w) || chan.includes(w)) && !t.includes(w)) s -= 12;
     }
-    scored.push({ s, url: `https://www.youtube.com/watch?v=${v.id}` });
+    scored.push({ score: s, url: `https://www.youtube.com/watch?v=${v.id}`, title: v.title });
   }
-  return scored.sort((x, y) => y.s - x.s).map(v => v.url);
+  return scored.sort((x, y) => y.score - x.score);
 }
 
 // --- Download a song as mp3/m4a/wav via yt-dlp, with cover + tags embedded ---
 app.post('/api/song', async (req, res) => {
   try {
-    const { artist, track, album, cover, duration, format } = req.body;
+    const { artist, track, album, cover, duration, format, url } = req.body;
     if (!track || !['mp3', 'm4a', 'wav'].includes(format)) {
       return res.status(400).json({ error: 'Missing track or bad format' });
     }
+
+    const query = `${artist || ''} ${track} audio`.trim();
+    let sources;
+    if (url) {
+      // Explicit link: bypass matching entirely
+      let host = '';
+      try { host = new URL(url).hostname.replace(/^(www|m)\./, ''); } catch {}
+      if (!['youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
+        return res.status(400).json({ error: 'Only YouTube links are supported' });
+      }
+      sources = [url];
+    } else {
+      const ranked = await rankVideos({ artist, track, duration });
+      if (ranked === null) {
+        sources = [`ytsearch1:${query}`]; // search itself failed; last resort
+      } else {
+        if (!ranked.length || ranked[0].score < MIN_CONFIDENCE) {
+          return res.status(404).json({
+            error: `No confident YouTube match for "${track}" — paste a YouTube link to download it`,
+          });
+        }
+        console.log(`song: "${query}" best match "${ranked[0].title}" (score ${ranked[0].score})`);
+        // Keep runners-up — some videos 403 or are region-locked
+        sources = ranked.slice(0, 3).map(r => r.url);
+      }
+    }
+
     const jobDir = path.join(WORK_DIR, 'job-' + newId());
     fs.mkdirSync(jobDir);
-    const query = `${artist || ''} ${track} audio`.trim();
-    // Try the ranked candidates in order — some videos 403 or are region-locked
-    const sources = (await rankVideos({ artist, track, duration })).slice(0, 3);
-    sources.push(`ytsearch1:${query}`);
     let lastErr;
     let produced;
     for (const source of sources) {

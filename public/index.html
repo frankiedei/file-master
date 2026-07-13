@@ -65,9 +65,12 @@
       </select>
       <button id="searchBtn" class="btn primary">Search</button>
     </div>
+    <div class="glass urlbar">
+      <input type="url" id="ytUrl" placeholder="Optional: paste a YouTube link — your next download uses it instead of auto-match">
+    </div>
     <details class="glass bulkbar">
       <summary>Bulk download — paste a list of songs</summary>
-      <textarea id="bulkInput" rows="5" placeholder="One song per line:&#10;Daft Punk - Around the World&#10;Radiohead - Karma Police"></textarea>
+      <textarea id="bulkInput" rows="5" placeholder="One song per line:&#10;Daft Punk - Around the World&#10;Radiohead - Karma Police&#10;Artist - Title | optional YouTube link to force the exact video"></textarea>
       <div class="bulk-actions">
         <button id="bulkBtn" class="btn primary">Download All</button>
         <button id="bulkZipBtn" class="btn" hidden>Download ZIP</button>
