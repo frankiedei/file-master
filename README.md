@@ -51,8 +51,15 @@ The installer handles ffmpeg/pandoc/yt-dlp via Homebrew if they're missing.
   server queries Deezer and iTunes in parallel and ranks exact matches first —
   no API keys needed)
 - Cover-art result cards; click one to download as MP3, M4A, or WAV
-- Audio is fetched via yt-dlp (best-quality YouTube match) with the cover art,
-  title, artist, and album tags embedded (WAV can't hold cover art)
+- Audio is fetched via yt-dlp with the cover art, title, artist, and album tags
+  embedded (WAV can't hold cover art)
+- The YouTube match is scored, not just "first result": candidates are ranked by
+  duration match against the Deezer/iTunes track length, artist/title presence,
+  and official "- Topic" audio channels, while covers/live versions/remixes/
+  definition-of-the-word videos are penalized
+- **Bulk download**: expand the "Bulk download" panel, paste one song per line
+  (`Artist - Title`), and it searches, auto-picks the best match, downloads each,
+  and offers a single ZIP at the end
 
 ## Notes
 

@@ -14,7 +14,7 @@ APP_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 PORT="${PORT:-3456}"
 URL="http://localhost:$PORT"
 WORK_DIR="${TMPDIR:-/tmp}"; WORK_DIR="${WORK_DIR%/}/file-master"
-PID_FILE="$WORK_DIR/server.pid"
+PID_FILE="$WORK_DIR/server-$PORT.pid"
 LOG_FILE="$WORK_DIR/server.log"
 
 running() {

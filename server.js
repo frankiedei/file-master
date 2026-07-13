@@ -13,7 +13,7 @@ const PORT = Number(process.env.PORT) || 3456;
 
 const WORK_DIR = path.join(os.tmpdir(), 'file-master');
 fs.mkdirSync(WORK_DIR, { recursive: true });
-const PID_FILE = path.join(WORK_DIR, 'server.pid');
+const PID_FILE = path.join(WORK_DIR, `server-${PORT}.pid`);
 
 const upload = multer({
   dest: path.join(WORK_DIR, 'uploads'),
@@ -56,6 +56,20 @@ function run(cmd, args, opts = {}) {
     p.on('error', reject);
     p.on('close', code => {
       if (code === 0) resolve();
+      else reject(new Error(`${cmd} exited with ${code}:\n${err.slice(-2000)}`));
+    });
+  });
+}
+
+function runOut(cmd, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args);
+    let out = '', err = '';
+    p.stdout.on('data', d => { out += d; });
+    p.stderr.on('data', d => { err += d; });
+    p.on('error', reject);
+    p.on('close', code => {
+      if (code === 0) resolve(out);
       else reject(new Error(`${cmd} exited with ${code}:\n${err.slice(-2000)}`));
     });
   });
@@ -248,24 +262,83 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
+// Words that signal the video is NOT the studio recording we want
+const BAD_WORDS = [
+  'cover', 'live', 'remix', 'karaoke', 'instrumental', 'reaction', 'acoustic',
+  'sped up', 'slowed', '8d audio', 'reverb', 'nightcore', 'loop', '1 hour',
+  'definition', 'meaning', 'pronunciation', 'pronounce', 'vocabulary',
+  'tutorial', 'lesson', 'review', 'trailer', 'teaser', 'interview',
+];
+
+// Search YouTube for the track and score candidates instead of trusting the
+// first hit — duration (known from Deezer/iTunes) is the strongest signal.
+// Returns watch URLs, best first, so the caller can retry on blocked videos.
+async function rankVideos({ artist, track, duration }) {
+  const query = `${artist || ''} ${track} audio`.trim();
+  let candidates;
+  try {
+    const out = await runOut('yt-dlp', [`ytsearch8:${query}`, '--dump-json', '--flat-playlist']);
+    candidates = out.trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
+  } catch {
+    return []; // fall back to ytsearch1
+  }
+  const t = track.toLowerCase();
+  const a = (artist || '').toLowerCase();
+  const scored = [];
+  for (const v of candidates) {
+    if (!v.id) continue;
+    const title = (v.title || '').toLowerCase();
+    const chan = (v.uploader || v.channel || '').toLowerCase();
+    let s = 0;
+    if (duration && v.duration) {
+      const diff = Math.abs(v.duration - duration);
+      if (diff <= 3) s += 30;
+      else if (diff <= 10) s += 15;
+      else if (diff > Math.max(45, duration * 0.25)) s -= 25;
+    }
+    if (title.includes(t)) s += 10;
+    if (a && (title.includes(a) || chan.includes(a))) s += 8;
+    if (chan.endsWith(' - topic')) s += 12; // auto-generated official audio channel
+    if (/official (audio|video|music video)/.test(title)) s += 5;
+    for (const w of BAD_WORDS) {
+      if ((title.includes(w) || chan.includes(w)) && !t.includes(w)) s -= 12;
+    }
+    scored.push({ s, url: `https://www.youtube.com/watch?v=${v.id}` });
+  }
+  return scored.sort((x, y) => y.s - x.s).map(v => v.url);
+}
+
 // --- Download a song as mp3/m4a/wav via yt-dlp, with cover + tags embedded ---
 app.post('/api/song', async (req, res) => {
   try {
-    const { artist, track, album, cover, format } = req.body;
+    const { artist, track, album, cover, duration, format } = req.body;
     if (!track || !['mp3', 'm4a', 'wav'].includes(format)) {
       return res.status(400).json({ error: 'Missing track or bad format' });
     }
     const jobDir = path.join(WORK_DIR, 'job-' + newId());
     fs.mkdirSync(jobDir);
     const query = `${artist || ''} ${track} audio`.trim();
-    await run('yt-dlp', [
-      `ytsearch1:${query}`,
-      '-x', '--audio-format', format, '--audio-quality', '0',
-      '--no-playlist', '--max-filesize', '100M',
-      '-o', path.join(jobDir, 'out.%(ext)s'),
-    ]);
-    const produced = fs.readdirSync(jobDir).find(f => f.startsWith('out.'));
-    if (!produced) throw new Error('yt-dlp produced no file');
+    // Try the ranked candidates in order — some videos 403 or are region-locked
+    const sources = (await rankVideos({ artist, track, duration })).slice(0, 3);
+    sources.push(`ytsearch1:${query}`);
+    let lastErr;
+    let produced;
+    for (const source of sources) {
+      console.log(`song: "${query}" (${duration || '?'}s) -> ${source}`);
+      try {
+        await run('yt-dlp', [
+          source,
+          '-x', '--audio-format', format, '--audio-quality', '0',
+          '--no-playlist', '--max-filesize', '100M',
+          '-o', path.join(jobDir, 'out.%(ext)s'),
+        ]);
+        produced = fs.readdirSync(jobDir).find(f => f.startsWith('out.'));
+        if (produced) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!produced) throw lastErr || new Error('yt-dlp produced no file');
     let outPath = path.join(jobDir, produced);
 
     // Embed metadata + cover art (wav can't hold cover art)

@@ -283,7 +283,7 @@ async function downloadSong(r, card) {
   try {
     const resp = await fetch('/api/song', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ artist: r.artist, track: r.track, album: r.album, cover: r.cover, format }),
+      body: JSON.stringify({ artist: r.artist, track: r.track, album: r.album, cover: r.cover, duration: r.duration, format }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Download failed');
@@ -298,6 +298,72 @@ async function downloadSong(r, card) {
     card.classList.remove('busy');
   }
 }
+
+// ---------- bulk download ----------
+const bulkIds = [];
+
+$('#bulkBtn').addEventListener('click', async () => {
+  const lines = $('#bulkInput').value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return;
+  const format = $('#songFormat').value;
+  const list = $('#bulkList');
+  list.innerHTML = '';
+  bulkIds.length = 0;
+  $('#bulkZipBtn').hidden = true;
+  $('#bulkBtn').disabled = true;
+
+  const rows = lines.map(line => {
+    const row = document.createElement('div');
+    row.className = 'bulk-row';
+    row.innerHTML = '<span class="bl-name"></span><span class="bl-status">Queued</span>';
+    row.querySelector('.bl-name').textContent = line;
+    list.appendChild(row);
+    return row;
+  });
+
+  for (let i = 0; i < lines.length; i++) {
+    const status = rows[i].querySelector('.bl-status');
+    // "Artist - Title" (also – or —); no separator = treat the line as a title
+    const parts = lines[i].split(/\s+[-–—]\s+/);
+    const artist = parts.length > 1 ? parts[0] : '';
+    const song = parts.length > 1 ? parts.slice(1).join(' - ') : lines[i];
+    try {
+      status.innerHTML = '<span class="spin"></span>Searching…';
+      const sr = await fetch(`/api/search?artist=${encodeURIComponent(artist)}&song=${encodeURIComponent(song)}`)
+        .then(r => r.json());
+      const hit = sr.results && sr.results[0];
+      if (!hit) throw new Error('No match found');
+      status.innerHTML = '<span class="spin"></span>Downloading…';
+      const resp = await fetch('/api/song', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artist: hit.artist, track: hit.track, album: hit.album,
+          cover: hit.cover, duration: hit.duration, format }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Download failed');
+      bulkIds.push(data.id);
+      status.innerHTML = `✅ <a href="/api/file/${data.id}" download>${data.name}</a>`;
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+    }
+  }
+
+  $('#bulkBtn').disabled = false;
+  $('#bulkZipBtn').hidden = bulkIds.length === 0;
+});
+
+$('#bulkZipBtn').addEventListener('click', async () => {
+  const resp = await fetch('/api/zip', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: bulkIds }),
+  });
+  const blob = await resp.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'songs.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
 // ---------- power button: shut down the backend ----------
 $('#powerBtn').addEventListener('click', async () => {

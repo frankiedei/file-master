@@ -65,6 +65,16 @@
       </select>
       <button id="searchBtn" class="btn primary">Search</button>
     </div>
+    <details class="glass bulkbar">
+      <summary>Bulk download — paste a list of songs</summary>
+      <textarea id="bulkInput" rows="5" placeholder="One song per line:&#10;Daft Punk - Around the World&#10;Radiohead - Karma Police"></textarea>
+      <div class="bulk-actions">
+        <button id="bulkBtn" class="btn primary">Download All</button>
+        <button id="bulkZipBtn" class="btn" hidden>Download ZIP</button>
+        <span class="hint">Best match is picked automatically · format from the selector above</span>
+      </div>
+      <div id="bulkList" class="bulk-list"></div>
+    </details>
     <div id="songStatus" class="status" hidden></div>
     <div id="results" class="results"></div>
   </section>
