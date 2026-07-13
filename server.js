@@ -309,6 +309,9 @@ async function rankVideos({ artist, track, duration }) {
   const a = cleanText(artist);
   const scored = [];
   for (const v of candidates) {
+    // No duration in search results = unavailable video, premiere, or live
+    // stream — never the studio recording, and often not downloadable at all
+    if (v.duration == null) continue;
     const title = cleanText(v.title);
     const rawTitle = (v.title || '').toLowerCase();
     const chan = cleanText(v.uploader || v.channel);
@@ -371,8 +374,8 @@ app.post('/api/song', async (req, res) => {
           });
         }
         console.log(`song: "${query}" best match "${ranked[0].title}" (score ${ranked[0].score})`);
-        // Keep runners-up — some videos 403 or are region-locked
-        sources = ranked.slice(0, 3);
+        // Keep runners-up — some videos 403, are region-locked, or vanish
+        sources = ranked.slice(0, 5);
       }
     }
 
@@ -396,7 +399,13 @@ app.post('/api/song', async (req, res) => {
         lastErr = e;
       }
     }
-    if (!produced) throw lastErr || new Error('yt-dlp produced no file');
+    if (!produced) {
+      const lines = lastErr ? lastErr.message.split('\n') : [];
+      const detail = lines.find(l => l.startsWith('ERROR:')) || lines[0] || 'no file produced';
+      throw new Error(url
+        ? `The linked video failed to download — ${detail}`
+        : `Tried ${sources.length} matched video(s), all failed (${detail}) — paste a YouTube link to pick one manually`);
+    }
     let outPath = path.join(jobDir, produced);
 
     // Embed metadata + cover art (wav can't hold cover art)
