@@ -278,6 +278,9 @@ const MIN_CONFIDENCE = 12;
 const cleanText = s => (s || '').toLowerCase()
   .replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(/\s+/g, ' ').trim();
 
+// Whole-word phrase match: "nosebleed" must not match "thee nosebleeds"
+const hasPhrase = (hay, needle) => ` ${hay} `.includes(` ${needle} `);
+
 // Search YouTube for the track and score candidates instead of trusting the
 // first hit — duration (known from Deezer/iTunes) is the strongest signal.
 // Returns { score, url } best first, or null if the search itself failed.
@@ -288,7 +291,7 @@ async function rankVideos({ artist, track, duration }) {
   const base = `${artist || ''} ${track}`.trim();
   const queries = [`${base} audio`, `${base} song`];
   const outs = await Promise.allSettled(queries.map(q =>
-    runOut('yt-dlp', [`ytsearch6:${q}`, '--dump-json', '--flat-playlist'])));
+    runOut('yt-dlp', [`ytsearch10:${q}`, '--dump-json', '--flat-playlist'])));
   const candidates = [];
   const seen = new Set();
   for (const o of outs) {
@@ -315,11 +318,12 @@ async function rankVideos({ artist, track, duration }) {
     const title = cleanText(v.title);
     const rawTitle = (v.title || '').toLowerCase();
     const chan = cleanText(v.uploader || v.channel);
-    // Hard requirements: the video title must contain the track name, and when
-    // the artist is known they must appear in the title or channel — otherwise
-    // a same-length song by someone else can outrank everything
-    if (!title.includes(tMain)) continue;
-    if (a && !title.includes(a) && !chan.includes(a)) continue;
+    // Hard requirements (whole words): the video title must contain the track
+    // name, and when the artist is known they must appear in the title or
+    // channel — otherwise a same-length song by someone else can outrank
+    // everything
+    if (!hasPhrase(title, tMain)) continue;
+    if (a && !hasPhrase(title, a) && !hasPhrase(chan, a)) continue;
     let s = 0;
     if (duration && v.duration) {
       const diff = Math.abs(v.duration - duration);
