@@ -303,12 +303,20 @@ async function rankVideos({ artist, track, duration }) {
   if (outs.every(o => o.status === 'rejected')) return null; // search failed
 
   const t = cleanText(track);
+  // Track name without "(feat. X)" / "[remaster]" subtitles — YouTube titles
+  // often omit them, but the main name must be present in the video title
+  const tMain = cleanText(track.split(/[([]|feat\./i)[0]) || t;
   const a = cleanText(artist);
   const scored = [];
   for (const v of candidates) {
     const title = cleanText(v.title);
     const rawTitle = (v.title || '').toLowerCase();
     const chan = cleanText(v.uploader || v.channel);
+    // Hard requirements: the video title must contain the track name, and when
+    // the artist is known they must appear in the title or channel — otherwise
+    // a same-length song by someone else can outrank everything
+    if (!title.includes(tMain)) continue;
+    if (a && !title.includes(a) && !chan.includes(a)) continue;
     let s = 0;
     if (duration && v.duration) {
       const diff = Math.abs(v.duration - duration);
@@ -318,16 +326,18 @@ async function rankVideos({ artist, track, duration }) {
       else if (diff <= 10) s += 15;
     }
     if (title.includes(t)) s += 10;
-    if (a && (title.includes(a) || chan.includes(a))) s += 8;
     // Titles structured like a release ("Artist - Track", "Track") rank above
     // videos that merely mention the words somewhere
     if (title === t || title.startsWith(`${t} `) || (a && title.startsWith(`${a} ${t}`))) s += 8;
-    if (chan.endsWith(' topic')) s += 12; // auto-generated official audio channel
+    // Auto-generated official audio channel; the artist's own Topic channel is
+    // the canonical recording
+    if (chan.endsWith(' topic')) s += a ? (chan === `${a} topic` ? 20 : 8) : 12;
     if (/official (audio|video|music video)|official lyric/.test(rawTitle)) s += 5;
     for (const w of BAD_WORDS) {
       if ((title.includes(w) || rawTitle.includes(w) || chan.includes(w)) && !t.includes(w)) s -= 12;
     }
-    scored.push({ score: s, url: `https://www.youtube.com/watch?v=${v.id}`, title: v.title });
+    scored.push({ score: s, url: `https://www.youtube.com/watch?v=${v.id}`,
+      title: v.title, channel: v.uploader || v.channel });
   }
   return scored.sort((x, y) => y.score - x.score);
 }
@@ -349,11 +359,11 @@ app.post('/api/song', async (req, res) => {
       if (!['youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
         return res.status(400).json({ error: 'Only YouTube links are supported' });
       }
-      sources = [url];
+      sources = [{ url }];
     } else {
       const ranked = await rankVideos({ artist, track, duration });
       if (ranked === null) {
-        sources = [`ytsearch1:${query}`]; // search itself failed; last resort
+        sources = [{ url: `ytsearch1:${query}` }]; // search itself failed; last resort
       } else {
         if (!ranked.length || ranked[0].score < MIN_CONFIDENCE) {
           return res.status(404).json({
@@ -362,7 +372,7 @@ app.post('/api/song', async (req, res) => {
         }
         console.log(`song: "${query}" best match "${ranked[0].title}" (score ${ranked[0].score})`);
         // Keep runners-up — some videos 403 or are region-locked
-        sources = ranked.slice(0, 3).map(r => r.url);
+        sources = ranked.slice(0, 3);
       }
     }
 
@@ -370,17 +380,18 @@ app.post('/api/song', async (req, res) => {
     fs.mkdirSync(jobDir);
     let lastErr;
     let produced;
+    let used;
     for (const source of sources) {
-      console.log(`song: "${query}" (${duration || '?'}s) -> ${source}`);
+      console.log(`song: "${query}" (${duration || '?'}s) -> ${source.url}`);
       try {
         await run('yt-dlp', [
-          source,
+          source.url,
           '-x', '--audio-format', format, '--audio-quality', '0',
           '--no-playlist', '--max-filesize', '100M',
           '-o', path.join(jobDir, 'out.%(ext)s'),
         ]);
         produced = fs.readdirSync(jobDir).find(f => f.startsWith('out.'));
-        if (produced) break;
+        if (produced) { used = source; break; }
       } catch (e) {
         lastErr = e;
       }
@@ -408,7 +419,10 @@ app.post('/api/song', async (req, res) => {
     outPath = tagged;
 
     const safe = `${artist ? artist + ' - ' : ''}${track}`.replace(/[\/\\:*?"<>|]/g, '_');
-    res.json({ id: register(outPath, `${safe}.${format}`), name: `${safe}.${format}` });
+    // Report which video was used so the UI can QC the choice
+    const via = used && used.url.startsWith('http')
+      ? { url: used.url, title: used.title, channel: used.channel } : undefined;
+    res.json({ id: register(outPath, `${safe}.${format}`), name: `${safe}.${format}`, via });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

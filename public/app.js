@@ -270,7 +270,10 @@ function renderResults(results) {
         <div class="cmeta">${esc(r.artist)}${r.album ? ' · ' + esc(r.album) : ''}${r.year ? ' · ' + r.year : ''}${dur ? ' · ' + dur : ''}</div>
         <div class="cdl">↓ Download ${$('#songFormat').value.toUpperCase()}</div>
       </div>`;
-    card.addEventListener('click', () => downloadSong(r, card));
+    card.addEventListener('click', e => {
+      if (e.target.closest('a')) return; // let the "check video" link work
+      downloadSong(r, card);
+    });
     grid.appendChild(card);
   });
 }
@@ -293,7 +296,9 @@ async function downloadSong(r, card) {
     a.href = `/api/file/${data.id}`;
     a.download = data.name;
     a.click();
-    dl.textContent = '✅ Downloaded';
+    dl.innerHTML = '✅ Downloaded' + (data.via
+      ? ` · <a href="${esc(data.via.url)}" target="_blank" title="${esc(data.via.title || '')} — ${esc(data.via.channel || '')}">check video</a>`
+      : '');
   } catch (e) {
     dl.textContent = '❌ ' + e.message;
   } finally {
@@ -349,6 +354,14 @@ $('#bulkBtn').addEventListener('click', async () => {
       if (!resp.ok) throw new Error(data.error || 'Download failed');
       bulkIds.push(data.id);
       status.innerHTML = `✅ <a href="/api/file/${data.id}" download>${data.name}</a>`;
+      if (data.via) {
+        const via = document.createElement('div');
+        via.className = 'bl-via';
+        via.innerHTML = `via <a href="${esc(data.via.url)}" target="_blank"></a>`;
+        via.querySelector('a').textContent =
+          `${data.via.title || data.via.url}${data.via.channel ? ' — ' + data.via.channel : ''}`;
+        rows[i].appendChild(via);
+      }
     } catch (e) {
       status.textContent = '❌ ' + e.message;
     }
