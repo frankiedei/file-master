@@ -1,7 +1,14 @@
 let FORMATS = {};
+let MAX_DIM = 5000;
 const EXT_TYPE = {};
 
+// Source extensions that name the same format under a different spelling — used
+// so "resize but keep the format" can find the matching target
+const SAME_AS = { jpeg: 'jpg', tif: 'tiff', htm: 'html', markdown: 'md' };
+
 fetch('/api/formats').then(r => r.json()).then(f => {
+  MAX_DIM = f.maxDim || MAX_DIM;
+  delete f.maxDim;
   FORMATS = f;
   for (const [type, exts] of Object.entries(f)) exts.forEach(e => { EXT_TYPE[e] = type; });
   Object.assign(EXT_TYPE, {
@@ -51,13 +58,32 @@ function extOf(name) {
 function addFiles(list) {
   for (const f of list) {
     const type = EXT_TYPE[extOf(f.name)];
-    queue.push({
+    const item = {
       key: ++keySeq, name: f.name, type: type || null, source: f,
       target: type ? defaultTarget(type, extOf(f.name)) : null,
       state: type ? 'ready' : 'unsupported',
-    });
+    };
+    queue.push(item);
+    probeDims(item);
   }
   render();
+}
+
+// Show the original pixel size next to the resize fields so there's something
+// to size against. HEIC and friends won't decode in the browser — never mind.
+function probeDims(item) {
+  if (item.type !== 'image' || typeof item.source === 'string') return;
+  createImageBitmap(item.source).then(bm => {
+    item.dims = { w: bm.width, h: bm.height };
+    bm.close();
+    render();
+  }).catch(() => {});
+}
+
+function sameFormatTarget(item) {
+  const e = extOf(item.name);
+  const same = SAME_AS[e] || e;
+  return item.type && FORMATS[item.type] && FORMATS[item.type].includes(same) ? same : null;
 }
 
 function addUrl() {
@@ -86,13 +112,42 @@ function defaultTarget(type, srcExt) {
 function targetOptions(item) {
   // URL items with unknown type get every format to choose from
   const types = item.type ? [item.type] : Object.keys(FORMATS);
+  // The source format stays in the list — resizing an image usually means
+  // keeping it a JPG, not converting it to something else
+  const same = sameFormatTarget(item);
   let html = '';
   for (const t of types) {
-    const opts = FORMATS[t].filter(f => f !== extOf(item.name))
-      .map(f => `<option value="${f}" ${f === item.target ? 'selected' : ''}>${f.toUpperCase()}</option>`).join('');
+    const opts = FORMATS[t]
+      .map(f => `<option value="${f}" ${f === item.target ? 'selected' : ''}>${f.toUpperCase()}${f === same ? ' (same)' : ''}</option>`).join('');
     html += types.length > 1 ? `<optgroup label="${t}">${opts}</optgroup>` : opts;
   }
   return html;
+}
+
+const FIT_MODES = [
+  ['inside', 'Fit'],
+  ['cover', 'Fill + crop'],
+  ['fill', 'Stretch'],
+];
+
+function resizeRow(item) {
+  const fit = item.fit || 'inside';
+  return `
+    <div class="rsz">
+      <span class="rsz-lbl">Resize</span>
+      <input type="number" class="rsz-dim rsz-w" data-key="${item.key}" min="1" max="${MAX_DIM}"
+        placeholder="W" value="${item.width || ''}">
+      <span class="rsz-x">×</span>
+      <input type="number" class="rsz-dim rsz-h" data-key="${item.key}" min="1" max="${MAX_DIM}"
+        placeholder="H" value="${item.height || ''}">
+      <select class="fmt-select rsz-fit" data-key="${item.key}">
+        ${FIT_MODES.map(([v, label]) =>
+          `<option value="${v}" ${v === fit ? 'selected' : ''}>${label}</option>`).join('')}
+      </select>
+      <span class="hint">${item.dims
+        ? `original ${item.dims.w}×${item.dims.h} · up to ${MAX_DIM}×${MAX_DIM}`
+        : `up to ${MAX_DIM}×${MAX_DIM} · leave one blank to keep the aspect ratio`}</span>
+    </div>`;
 }
 
 function render() {
@@ -125,13 +180,40 @@ function render() {
       <span class="status-ic">${statusIc}</span>
       ${item.state === 'done' ? `<a class="dl" href="/api/file/${item.resultId}" download>Download</a>` : ''}
       <button class="remove" data-key="${item.key}" title="Remove">×</button>
+      ${item.type === 'image' && (item.state === 'ready' || item.state === 'error')
+        ? resizeRow(item) : ''}
     `;
     q.appendChild(el);
   });
 
-  q.querySelectorAll('.fmt-select').forEach(sel => sel.addEventListener('change', () => {
+  q.querySelectorAll('.fmt-select:not(.rsz-fit)').forEach(sel => sel.addEventListener('change', () => {
     const item = queue.find(x => x.key == sel.dataset.key);
-    if (item) item.target = sel.value;
+    if (!item) return;
+    item.target = sel.value;
+    item.targetPicked = true; // don't second-guess an explicit choice below
+  }));
+
+  q.querySelectorAll('.rsz-fit').forEach(sel => sel.addEventListener('change', () => {
+    const item = queue.find(x => x.key == sel.dataset.key);
+    if (item) item.fit = sel.value;
+  }));
+
+  // Typing a size must not re-render — that would blow away input focus — so
+  // the one dependent control (the format select) is updated in place
+  q.querySelectorAll('.rsz-dim').forEach(inp => inp.addEventListener('input', () => {
+    const item = queue.find(x => x.key == inp.dataset.key);
+    if (!item) return;
+    let v = parseInt(inp.value, 10);
+    if (Number.isFinite(v) && v > MAX_DIM) { v = MAX_DIM; inp.value = String(v); }
+    item[inp.classList.contains('rsz-w') ? 'width' : 'height'] =
+      Number.isFinite(v) && v > 0 ? v : null;
+    // A size means "resize this image"; keeping the format is the sane default
+    const same = sameFormatTarget(item);
+    if (!item.targetPicked && same && (item.width || item.height)) {
+      item.target = same;
+      const sel = q.querySelector(`.fmt-select[data-key="${item.key}"]:not(.rsz-fit)`);
+      if (sel) sel.value = same;
+    }
   }));
   q.querySelectorAll('.remove').forEach(btn => btn.addEventListener('click', () => {
     const idx = queue.findIndex(x => x.key == btn.dataset.key);
@@ -187,15 +269,23 @@ $('#convertAll').addEventListener('click', async () => {
 async function convertOne(item) {
   try {
     let resp;
+    const sized = item.width || item.height;
     if (item.isUrl) {
       resp = await fetch('/api/convert-url', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: item.source, target: item.target }),
+        body: JSON.stringify({
+          url: item.source, target: item.target,
+          width: item.width || undefined, height: item.height || undefined,
+          fit: sized ? (item.fit || 'inside') : undefined,
+        }),
       });
     } else {
       const fd = new FormData();
       fd.append('file', item.source);
       fd.append('target', item.target);
+      if (item.width) fd.append('width', item.width);
+      if (item.height) fd.append('height', item.height);
+      if (sized) fd.append('fit', item.fit || 'inside');
       resp = await fetch('/api/convert', { method: 'POST', body: fd });
     }
     const data = await resp.json();

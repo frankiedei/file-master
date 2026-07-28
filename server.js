@@ -48,6 +48,38 @@ function extOf(name) {
   return path.extname(name).slice(1).toLowerCase();
 }
 
+const MAX_DIM = 5000;
+
+// sharp's encoder names for the image targets it can write; anything missing
+// from this map (bmp, ico, gif) has to go back through ffmpeg
+const SHARP_FMT = {
+  jpg: 'jpeg', jpeg: 'jpeg', png: 'png', webp: 'webp',
+  avif: 'avif', tiff: 'tiff', tif: 'tiff',
+};
+
+function normResize(r) {
+  if (!r) return null;
+  const dim = v => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_DIM) : null;
+  };
+  const width = dim(r.width), height = dim(r.height);
+  if (!width && !height) return null; // both blank = no resize
+  return { width, height, fit: ['inside', 'cover', 'fill'].includes(r.fit) ? r.fit : 'inside' };
+}
+
+// ffmpeg equivalents of sharp's fit modes, for the targets sharp can't write.
+// A blank side becomes -2 so the aspect ratio is kept (and stays even, which
+// some encoders insist on).
+function scaleFilter({ width, height, fit }) {
+  if (!width || !height) return `scale=${width || -2}:${height || -2}:flags=lanczos`;
+  if (fit === 'fill') return `scale=${width}:${height}:flags=lanczos`;
+  if (fit === 'cover') {
+    return `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}`;
+  }
+  return `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos`;
+}
+
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, opts);
@@ -85,10 +117,11 @@ function register(filePath, name) {
   return id;
 }
 
-async function convertFile(inputPath, originalName, target) {
+async function convertFile(inputPath, originalName, target, resizeReq) {
   const srcExt = extOf(originalName);
   const type = EXT_TYPE[srcExt];
   if (!type) throw new Error(`Unsupported input format: .${srcExt}`);
+  const resize = normResize(resizeReq);
 
   const base = path.basename(originalName, path.extname(originalName));
   const outName = `${base}.${target}`;
@@ -101,14 +134,19 @@ async function convertFile(inputPath, originalName, target) {
     if (from) args.push('-f', from);
     if (to) args.push('-t', to);
     await run('pandoc', args);
-  } else if (type === 'image' && ['webp', 'avif'].includes(target)) {
-    // this ffmpeg build has no webp/avif encoder — use sharp
+  } else if (type === 'image' && SHARP_FMT[target] && (resize || ['webp', 'avif'].includes(target))) {
+    // sharp both for resizing (Lanczos, and it enlarges past the original
+    // instead of refusing) and for webp/avif, which this ffmpeg build can't
+    // encode. gif targets fall through to ffmpeg so animation survives.
     let src = inputPath;
     if (srcExt === 'heic' || srcExt === 'heif') {
       src = inputPath + '.png';
       await run('sips', ['-s', 'format', 'png', inputPath, '--out', src]);
     }
-    await sharp(src).toFormat(target).toFile(outPath);
+    let img = sharp(src, { failOn: 'none' });
+    if (resize) img = img.resize({ ...resize, withoutEnlargement: false });
+    const opts = SHARP_FMT[target] === 'jpeg' ? { quality: 92 } : undefined;
+    await img.toFormat(SHARP_FMT[target], opts).toFile(outPath);
   } else {
     let src = inputPath;
     if (srcExt === 'heic' || srcExt === 'heif') {
@@ -116,8 +154,14 @@ async function convertFile(inputPath, originalName, target) {
       await run('sips', ['-s', 'format', 'png', inputPath, '--out', src]);
     }
     const args = ['-y', '-i', src];
-    if (target === 'gif' && (type === 'video')) {
-      args.push('-vf', 'fps=12,scale=640:-1:flags=lanczos', '-loop', '0');
+    const videoGif = target === 'gif' && type === 'video';
+    const vf = [];
+    if (videoGif) vf.push('fps=12');
+    if (resize) vf.push(scaleFilter(resize));
+    else if (videoGif) vf.push('scale=640:-1:flags=lanczos');
+    if (vf.length) args.push('-vf', vf.join(','));
+    if (videoGif) {
+      args.push('-loop', '0');
     } else if (type === 'video' && EXT_TYPE[target] === 'audio') {
       args.push('-vn'); // extract audio track from video
     }
@@ -139,9 +183,10 @@ async function convertFile(inputPath, originalName, target) {
 // --- Convert an uploaded file ---
 app.post('/api/convert', upload.single('file'), async (req, res) => {
   try {
-    const { target } = req.body;
+    const { target, width, height, fit } = req.body;
     if (!req.file || !target) return res.status(400).json({ error: 'Missing file or target format' });
-    const result = await convertFile(req.file.path, req.file.originalname, target);
+    const result = await convertFile(req.file.path, req.file.originalname, target,
+      { width, height, fit });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -153,7 +198,7 @@ app.post('/api/convert', upload.single('file'), async (req, res) => {
 // --- Convert from a URL ---
 app.post('/api/convert-url', async (req, res) => {
   try {
-    const { url, target } = req.body;
+    const { url, target, width, height, fit } = req.body;
     if (!url || !target) return res.status(400).json({ error: 'Missing url or target format' });
     const parsed = new URL(url);
     const resp = await fetch(url);
@@ -168,7 +213,7 @@ app.post('/api/convert-url', async (req, res) => {
     const tmpPath = path.join(WORK_DIR, newId() + path.extname(name));
     fs.writeFileSync(tmpPath, Buffer.from(await resp.arrayBuffer()));
     try {
-      const result = await convertFile(tmpPath, name, target);
+      const result = await convertFile(tmpPath, name, target, { width, height, fit });
       res.json(result);
     } finally {
       fs.unlink(tmpPath, () => {});
@@ -545,7 +590,7 @@ app.post('/api/media', async (req, res) => {
   }
 });
 
-app.get('/api/formats', (_req, res) => res.json(FORMATS));
+app.get('/api/formats', (_req, res) => res.json({ ...FORMATS, maxDim: MAX_DIM }));
 
 // --- Shut the server down (used by the UI power button and `file-master stop`) ---
 app.post('/api/shutdown', (_req, res) => {

@@ -44,6 +44,14 @@ The installer handles ffmpeg/pandoc/yt-dlp via Homebrew if they're missing.
 - Video: mp4, webm, mov, mkv, avi, gif — plus audio extraction (video → mp3 etc.)
 - Image: jpg, png, webp, gif, bmp, tiff, avif (HEIC input supported via macOS sips)
 - Text: md, html, docx, txt, rtf, odt, epub, tex, json, rst
+- **Resize images** — every image row gets `W × H` fields, up to **5000 × 5000**.
+  Enlarging past the original works (plain Lanczos resampling, not AI upscaling),
+  so small images can be blown up to the size you need
+  - Leave one side blank to keep the aspect ratio
+  - **Fit** stays inside the box, **Fill + crop** covers it and trims the
+    overflow, **Stretch** forces the exact size
+  - Entering a size switches the target to the image's own format, so resizing
+    a JPG leaves you with a JPG — pick a different format to convert as well
 - Batch convert, then **drag rows to reorder** and **Download ZIP** — entries are
   numbered (`1. name.ext`, `2. name.ext`, …) so the ZIP preserves your order
 

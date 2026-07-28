@@ -130,8 +130,24 @@ select option { background: #171b2e; }
 .queue { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .qitem {
   display: flex; align-items: center; gap: 14px; padding: 13px 16px;
-  transition: transform 0.15s, opacity 0.2s;
+  transition: transform 0.15s, opacity 0.2s; flex-wrap: wrap;
 }
+
+/* ---- image resize row ---- */
+.rsz {
+  flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-top: 11px; margin-top: 2px; border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+.rsz-lbl { font-size: 0.78rem; font-weight: 600; color: var(--text-dim); }
+.rsz-x { color: var(--text-dim); font-size: 0.85rem; }
+.rsz-dim {
+  width: 74px; flex: 0 0 auto; padding: 7px 10px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border);
+  color: var(--text); font-size: 0.85rem; outline: none; transition: border-color 0.2s;
+}
+.rsz-dim:focus { border-color: var(--accent); }
+.rsz-dim::placeholder { color: var(--text-dim); }
+.rsz .hint { margin-top: 0; margin-left: 2px; }
 .qitem.dragging { opacity: 0.4; }
 .qitem .grip { cursor: grab; color: var(--text-dim); font-size: 1.1rem; user-select: none; padding: 0 2px; }
 .qitem .num {
@@ -214,6 +230,9 @@ select option { background: #171b2e; }
   .header { justify-content: center; }
   .searchbar { flex-direction: column; }
   .searchbar .btn { width: 100%; }
+  /* keep the filename readable — let the badge/format controls wrap below it */
+  .qitem { gap: 10px; }
+  .qitem .info { min-width: 120px; }
   .media-actions, .bulk-actions { flex-direction: column; align-items: stretch; }
   .media-actions .btn, .media-actions .fmt-select,
   .bulk-actions .btn, .bulk-actions .fmt-select { width: 100%; }
