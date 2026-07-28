@@ -1,6 +1,7 @@
 # File Master
 
-Universal file converter + song finder with a glassmorphism UI. Runs entirely on your machine.
+Universal file converter + media downloader + song finder with a glassmorphism UI.
+Runs entirely on your machine.
 
 ## Install (macOS)
 
@@ -31,7 +32,7 @@ top-right corner — or, when running via `npm start`, just Ctrl+C.
 - **Node 18+** — server (`sharp` handles WebP/AVIF images)
 - **ffmpeg** — audio, video, and most image conversions
 - **pandoc** — text/document conversions
-- **yt-dlp** — song downloads
+- **yt-dlp** — song and media downloads
 
 The installer handles ffmpeg/pandoc/yt-dlp via Homebrew if they're missing.
 
@@ -46,11 +47,27 @@ The installer handles ffmpeg/pandoc/yt-dlp via Homebrew if they're missing.
 - Batch convert, then **drag rows to reorder** and **Download ZIP** — entries are
   numbered (`1. name.ext`, `2. name.ext`, …) so the ZIP preserves your order
 
+### Downloader tab
+- Paste **YouTube, Instagram, and TikTok** links — one per line — and download
+  them all as **MP3** (audio) or **MP4** (video)
+- Links can be mixed with other text; anything that looks like a URL is picked up
+- MP3 keeps the highest available audio quality and embeds the thumbnail as cover
+  art plus the source metadata
+- MP4 prefers H.264/AAC so files open in QuickTime, Photos, and iMovie (YouTube's
+  best streams are AV1/Opus, which most Apple software won't play), capped at 1080p
+- **Expand playlists** (off by default) follows a playlist or channel link instead
+  of downloading only the one video, up to 50 items
+- Every finished download is listed per row, with a single **Download ZIP** for
+  the whole batch
+- Instagram and TikTok gate a lot of content behind a login or block datacenter
+  IPs — those links fail with the reason shown on the row
+
 ### Song Finder tab
 - Separate artist + song fields (searching both together is unreliable, so the
   server queries Deezer and iTunes in parallel and ranks exact matches first —
   no API keys needed)
-- Cover-art result cards; click one to download as MP3, M4A, or WAV
+- Cover-art result cards, each with **MP3 / M4A / WAV** buttons — the file type is
+  chosen *after* searching, so wanting a different format doesn't mean searching again
 - Audio is fetched via yt-dlp with the cover art, title, artist, and album tags
   embedded (WAV can't hold cover art)
 - The YouTube match is scored, not just "first result": candidates from two
@@ -69,4 +86,5 @@ The installer handles ffmpeg/pandoc/yt-dlp via Homebrew if they're missing.
 ## Notes
 
 - Converted files live in a temp dir (`$TMPDIR/file-master`) and are cleared on reboot
-- Max upload size 2 GB, song downloads capped at 100 MB
+- Max upload size 2 GB; song downloads capped at 100 MB, Downloader-tab MP3 at
+  300 MB and MP4 at 1.5 GB

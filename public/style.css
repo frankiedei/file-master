@@ -169,7 +169,7 @@ select option { background: #171b2e; }
   gap: 14px;
 }
 .card {
-  overflow: hidden; cursor: pointer; transition: transform 0.18s, box-shadow 0.18s;
+  overflow: hidden; transition: transform 0.18s, box-shadow 0.18s;
   display: flex; flex-direction: column;
 }
 .card:hover {
@@ -180,9 +180,19 @@ select option { background: #171b2e; }
 .card .cbody { padding: 11px 13px 13px; }
 .card .ctitle { font-size: 0.9rem; font-weight: 600; line-height: 1.25; }
 .card .cmeta { font-size: 0.78rem; color: var(--text-dim); margin-top: 3px; }
-.card .cdl {
-  margin-top: 9px; font-size: 0.8rem; font-weight: 700; color: #c4b5fd;
+.card .cfmts { display: flex; gap: 6px; margin-top: 10px; }
+.card .pill {
+  flex: 1; padding: 6px 0; border-radius: 9px;
+  background: rgba(139, 92, 246, 0.18); border: 1px solid rgba(139, 92, 246, 0.35);
+  color: #c4b5fd; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  cursor: pointer; transition: all 0.15s;
 }
+.card .pill:hover { background: rgba(139, 92, 246, 0.4); color: var(--text); }
+.card .cdl {
+  margin-top: 9px; font-size: 0.78rem; font-weight: 600; color: #c4b5fd;
+  overflow-wrap: anywhere;
+}
+.card .cdl a { color: #67e8f9; }
 .card.busy { pointer-events: none; opacity: 0.65; }
 
 .status {
@@ -203,7 +213,10 @@ select option { background: #171b2e; }
 @media (max-width: 560px) {
   .header { justify-content: center; }
   .searchbar { flex-direction: column; }
-  .searchbar .fmt-select, .searchbar .btn { width: 100%; }
+  .searchbar .btn { width: 100%; }
+  .media-actions, .bulk-actions { flex-direction: column; align-items: stretch; }
+  .media-actions .btn, .media-actions .fmt-select,
+  .bulk-actions .btn, .bulk-actions .fmt-select { width: 100%; }
 }
 
 /* ---- power button / shutdown screen ---- */
@@ -244,3 +257,23 @@ select option { background: #171b2e; }
 .bl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bl-status { flex-shrink: 0; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
 .bl-status a { color: #67e8f9; }
+/* results of one row (a playlist can produce many files) sit under it */
+.bulk-row { flex-wrap: wrap; }
+.bl-via { flex-basis: 100%; display: flex; flex-direction: column; gap: 3px; font-size: 0.82rem; }
+.bl-via a { color: #67e8f9; overflow-wrap: anywhere; }
+
+/* ---- media downloader ---- */
+.mediabar { padding: 16px 22px; margin-bottom: 18px; }
+.mediabar textarea {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.06);
+  color: var(--text); font: inherit; font-size: 0.92rem; resize: vertical;
+}
+.mediabar textarea:focus { outline: none; border-color: rgba(196, 181, 253, 0.5); }
+.media-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.check {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 0.85rem; color: var(--text-dim); cursor: pointer;
+}
+.check:hover { color: var(--text); }
+.check input { accent-color: var(--accent); cursor: pointer; }

@@ -256,6 +256,8 @@ async function searchSongs() {
   }
 }
 
+const SONG_FORMATS = ['mp3', 'm4a', 'wav'];
+
 function renderResults(results) {
   const grid = $('#results');
   grid.innerHTML = '';
@@ -263,24 +265,26 @@ function renderResults(results) {
     const card = document.createElement('div');
     card.className = 'glass card';
     const dur = r.duration ? `${Math.floor(r.duration / 60)}:${String(r.duration % 60).padStart(2, '0')}` : '';
+    // Format is chosen per result, after searching — no need to search again
+    // just to get a different file type
     card.innerHTML = `
       ${r.cover ? `<img src="${esc(r.cover)}" alt="" loading="lazy">` : ''}
       <div class="cbody">
         <div class="ctitle">${esc(r.track)}</div>
         <div class="cmeta">${esc(r.artist)}${r.album ? ' · ' + esc(r.album) : ''}${r.year ? ' · ' + r.year : ''}${dur ? ' · ' + dur : ''}</div>
-        <div class="cdl">↓ Download ${$('#songFormat').value.toUpperCase()}</div>
+        <div class="cfmts">${SONG_FORMATS.map(f =>
+          `<button class="pill" data-fmt="${f}">${f.toUpperCase()}</button>`).join('')}</div>
+        <div class="cdl" hidden></div>
       </div>`;
-    card.addEventListener('click', e => {
-      if (e.target.closest('a')) return; // let the "check video" link work
-      downloadSong(r, card);
-    });
+    card.querySelectorAll('.pill').forEach(btn =>
+      btn.addEventListener('click', () => downloadSong(r, card, btn.dataset.fmt)));
     grid.appendChild(card);
   });
 }
 
-async function downloadSong(r, card) {
-  const format = $('#songFormat').value;
+async function downloadSong(r, card, format) {
   card.classList.add('busy');
+  card.querySelector('.cdl').hidden = false;
   const dl = card.querySelector('.cdl');
   dl.innerHTML = '<span class="spin"></span>Downloading…';
   try {
@@ -312,7 +316,7 @@ const bulkIds = [];
 $('#bulkBtn').addEventListener('click', async () => {
   const lines = $('#bulkInput').value.split('\n').map(l => l.trim()).filter(Boolean);
   if (!lines.length) return;
-  const format = $('#songFormat').value;
+  const format = $('#bulkFormat').value;
   const list = $('#bulkList');
   list.innerHTML = '';
   bulkIds.length = 0;
@@ -380,6 +384,79 @@ $('#bulkZipBtn').addEventListener('click', async () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'songs.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ---------- media downloader (YouTube / Instagram / TikTok) ----------
+const mediaIds = [];
+
+$('#mediaBtn').addEventListener('click', async () => {
+  // Accept links separated by newlines or whitespace, ignoring any label text
+  const urls = ($('#mediaInput').value.match(/https?:\/\/\S+/g) || [])
+    .map(u => u.replace(/[),.]+$/, ''));
+  const list = $('#mediaList');
+  if (!urls.length) {
+    list.innerHTML = '<div class="bulk-row"><span class="bl-name">Paste at least one link</span></div>';
+    return;
+  }
+  const format = $('#mediaFormat').value;
+  const playlist = $('#mediaPlaylist').checked;
+  list.innerHTML = '';
+  mediaIds.length = 0;
+  $('#mediaZipBtn').hidden = true;
+  $('#mediaBtn').disabled = true;
+
+  const rows = urls.map(u => {
+    const row = document.createElement('div');
+    row.className = 'bulk-row';
+    row.innerHTML = '<span class="bl-name"></span><span class="bl-status">Queued</span>';
+    row.querySelector('.bl-name').textContent = u;
+    list.appendChild(row);
+    return row;
+  });
+
+  for (let i = 0; i < urls.length; i++) {
+    const status = rows[i].querySelector('.bl-status');
+    status.innerHTML = `<span class="spin"></span>Downloading ${format.toUpperCase()}…`;
+    try {
+      const resp = await fetch('/api/media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urls[i], format, playlist }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Download failed');
+      data.files.forEach(f => mediaIds.push(f.id));
+      // A playlist link yields many files — list them all under the row
+      status.textContent = `✅ ${data.files.length} file${data.files.length > 1 ? 's' : ''}`;
+      const links = document.createElement('div');
+      links.className = 'bl-via';
+      data.files.forEach(f => {
+        const a = document.createElement('a');
+        a.href = `/api/file/${f.id}`;
+        a.download = f.name;
+        a.textContent = f.name;
+        links.appendChild(a);
+      });
+      rows[i].appendChild(links);
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+    }
+  }
+
+  $('#mediaBtn').disabled = false;
+  $('#mediaZipBtn').hidden = mediaIds.length === 0;
+});
+
+$('#mediaZipBtn').addEventListener('click', async () => {
+  const resp = await fetch('/api/zip', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: mediaIds }),
+  });
+  const blob = await resp.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'downloads.zip';
   a.click();
   URL.revokeObjectURL(a.href);
 });

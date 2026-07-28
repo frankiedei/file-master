@@ -441,6 +441,110 @@ app.post('/api/song', async (req, res) => {
   }
 });
 
+// --- YouTube / Instagram / TikTok -> mp3 or mp4 via yt-dlp ---
+const MEDIA_HOSTS = [
+  'youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be',
+  'instagram.com', 'instagr.am', 'ddinstagram.com',
+  'tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
+];
+
+function mediaHost(url) {
+  const host = new URL(url).hostname.replace(/^(www|m|mobile)\./, '');
+  return MEDIA_HOSTS.includes(host) ? host : null;
+}
+
+// Leftovers of a download (thumbnails, sidecars, partial files) that must not
+// be handed back to the user as results
+const JUNK_FILE = /\.(part|ytdl|temp|jpg|jpeg|png|webp|json|description|vtt|srt)$/i;
+
+function ytdlpDetail(err) {
+  const lines = (err && err.message ? err.message : '').split('\n');
+  const line = lines.find(l => l.includes('ERROR:')) || lines.find(Boolean) || 'download failed';
+  return line.replace(/^.*ERROR:\s*/, '')
+    .replace(/\s*See\s+https?:\/\/\S+.*$/, '') // strip yt-dlp's FAQ link footer
+    .trim().slice(0, 300);
+}
+
+app.post('/api/media', async (req, res) => {
+  const jobDir = path.join(WORK_DIR, 'job-' + newId());
+  try {
+    const { url, format, playlist } = req.body;
+    if (!url || !['mp3', 'mp4'].includes(format)) {
+      return res.status(400).json({ error: 'Missing url or bad format (mp3/mp4)' });
+    }
+    let host;
+    try { host = mediaHost(url.trim()); }
+    catch { return res.status(400).json({ error: 'That doesn’t look like a valid URL' }); }
+    if (!host) {
+      return res.status(400).json({ error: 'Only YouTube, Instagram and TikTok links are supported' });
+    }
+
+    fs.mkdirSync(jobDir, { recursive: true });
+    const outTpl = path.join(jobDir, '%(title).120B.%(ext)s');
+
+    const buildArgs = (embed) => {
+      const args = [url.trim(), '-o', outTpl, '--no-mtime', '--no-warnings'];
+      // A playlist link would otherwise pull hundreds of videos from one line
+      args.push(playlist ? '--yes-playlist' : '--no-playlist');
+      if (playlist) args.push('--playlist-end', '50');
+      if (format === 'mp3') {
+        args.push('-x', '--audio-format', 'mp3', '--audio-quality', '0', '--max-filesize', '300M');
+        // Cover art is worth having on audio; on video it just adds a stream
+        // that trips up some players. Instagram/TikTok thumbnails sometimes
+        // can't be embedded at all, hence the retry without this.
+        if (embed) args.push('--embed-thumbnail');
+      } else {
+        // Prefer H.264/AAC so the file opens in QuickTime, Photos and iMovie —
+        // YouTube's best streams are AV1/Opus, which an .mp4 container will
+        // hold but most Apple software won't play. Cap at 1080p: 4K pulls
+        // gigabytes and most sources top out lower anyway.
+        args.push('-f', [
+          'bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]',
+          'bv*[vcodec^=avc1][height<=1080]+ba',
+          'b[vcodec^=avc1][height<=1080]',
+          'bv*[height<=1080]+ba/b[height<=1080]',
+          'bv*+ba/b',
+        ].join('/'), '--merge-output-format', 'mp4', '--remux-video', 'mp4',
+          '--max-filesize', '1500M');
+      }
+      args.push('--embed-metadata');
+      return args;
+    };
+
+    const fail = (e) => {
+      const detail = ytdlpDetail(e);
+      if (/login|cookies|private|sign in/i.test(detail)) {
+        throw new Error(`${host} wants a login for this one — ${detail}`);
+      }
+      throw new Error(detail);
+    };
+    try {
+      await run('yt-dlp', buildArgs(true));
+    } catch (e) {
+      if (format !== 'mp3') fail(e); // nothing to retry without
+      fs.rmSync(jobDir, { recursive: true, force: true });
+      fs.mkdirSync(jobDir, { recursive: true });
+      try {
+        await run('yt-dlp', buildArgs(false));
+      } catch (e2) {
+        fail(e2);
+      }
+    }
+
+    const produced = fs.readdirSync(jobDir).filter(f => !JUNK_FILE.test(f) && !f.startsWith('.'));
+    if (!produced.length) throw new Error('Nothing was downloaded — the link may be private or too large');
+
+    const out = produced.sort().map(name => ({
+      id: register(path.join(jobDir, name), name),
+      name,
+    }));
+    res.json({ files: out, host });
+  } catch (e) {
+    fs.rmSync(jobDir, { recursive: true, force: true });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/formats', (_req, res) => res.json(FORMATS));
 
 // --- Shut the server down (used by the UI power button and `file-master stop`) ---

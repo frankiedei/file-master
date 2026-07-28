@@ -18,6 +18,7 @@
     <h1>File Master</h1>
     <nav class="tabs">
       <button class="tab active" data-tab="convert">Converter</button>
+      <button class="tab" data-tab="media">Downloader</button>
       <button class="tab" data-tab="song">Song Finder</button>
     </nav>
     <button id="powerBtn" class="power" title="Shut down the server">
@@ -53,16 +54,29 @@
     </div>
   </section>
 
+  <!-- ============ DOWNLOADER TAB ============ -->
+  <section id="tab-media" class="tab-panel">
+    <div class="glass mediabar">
+      <textarea id="mediaInput" rows="5" placeholder="Paste links, one per line:&#10;https://www.youtube.com/watch?v=…&#10;https://www.instagram.com/reel/…&#10;https://www.tiktok.com/@user/video/…"></textarea>
+      <div class="media-actions">
+        <select id="mediaFormat" class="fmt-select">
+          <option value="mp3">MP3 · audio</option>
+          <option value="mp4">MP4 · video</option>
+        </select>
+        <label class="check"><input type="checkbox" id="mediaPlaylist"> Expand playlists</label>
+        <button id="mediaBtn" class="btn primary">Download All</button>
+        <button id="mediaZipBtn" class="btn" hidden>Download ZIP</button>
+      </div>
+      <p class="hint">YouTube · Instagram · TikTok — video capped at 1080p, playlists at 50 items</p>
+    </div>
+    <div id="mediaList" class="bulk-list"></div>
+  </section>
+
   <!-- ============ SONG FINDER TAB ============ -->
   <section id="tab-song" class="tab-panel">
     <div class="glass searchbar">
       <input type="text" id="artistInput" placeholder="Artist">
       <input type="text" id="songInput" placeholder="Song name">
-      <select id="songFormat" class="fmt-select">
-        <option value="mp3">MP3</option>
-        <option value="m4a">M4A</option>
-        <option value="wav">WAV</option>
-      </select>
       <button id="searchBtn" class="btn primary">Search</button>
     </div>
     <div class="glass urlbar">
@@ -72,9 +86,14 @@
       <summary>Bulk download — paste a list of songs</summary>
       <textarea id="bulkInput" rows="5" placeholder="One song per line:&#10;Daft Punk - Around the World&#10;Radiohead - Karma Police&#10;Artist - Title | optional YouTube link to force the exact video"></textarea>
       <div class="bulk-actions">
+        <select id="bulkFormat" class="fmt-select">
+          <option value="mp3">MP3</option>
+          <option value="m4a">M4A</option>
+          <option value="wav">WAV</option>
+        </select>
         <button id="bulkBtn" class="btn primary">Download All</button>
         <button id="bulkZipBtn" class="btn" hidden>Download ZIP</button>
-        <span class="hint">Best match is picked automatically · format from the selector above</span>
+        <span class="hint">Best match is picked automatically</span>
       </div>
       <div id="bulkList" class="bulk-list"></div>
     </details>
